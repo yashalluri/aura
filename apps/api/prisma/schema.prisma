@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  phoneNumber String   @unique @map("phone_number")
+  timezone    String   @default("UTC")
+  checkInHour Int      @default(8) @map("check_in_hour")
+  toneMode    ToneMode @default(neutral) @map("tone_mode")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  contacts    Contact[]
+  routines    Routine[]
+  events      EventLog[]
+  suggestions DailySuggestionRow[]
+
+  @@map("users")
+}
+
+model Contact {
+  id                  String           @id @default(cuid())
+  userId              String           @map("user_id")
+  name                String
+  relationshipType    RelationshipType @default(friend) @map("relationship_type")
+  targetFrequencyDays Int              @map("target_frequency_days")
+  lastCheckInAt       DateTime?        @map("last_check_in_at")
+  birthday            DateTime?
+  createdAt           DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("contacts")
+}
+
+model Routine {
+  id             String        @id @default(cuid())
+  userId         String        @map("user_id")
+  name           String
+  frequencyType  FrequencyType @map("frequency_type")
+  frequencyValue Int           @map("frequency_value")
+  lastDoneAt     DateTime?     @map("last_done_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("routines")
+}
+
+model EventLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  type      String
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type, createdAt])
+  @@map("event_logs")
+}
+
+model DailySuggestionRow {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  localDate String    @map("local_date")
+  payload   Json
+  sentAt    DateTime? @map("sent_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, localDate])
+  @@map("daily_suggestions")
+}
+
+enum RelationshipType {
+  inner_circle
+  friend
+  acquaintance
+  other
+}
+
+enum FrequencyType {
+  daily
+  weekly
+  custom
+}
+
+enum ToneMode {
+  neutral
+  millennial
+  gen_z
+}

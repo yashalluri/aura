@@ -1,0 +1,20 @@
+import { z } from "zod";
+
+const EnvSchema = z.object({
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
+  API_PORT: z.coerce.number().int().positive().default(3001),
+  DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  DIRECT_URL: z.string().optional(),
+  INTERNAL_API_SECRET: z
+    .string()
+    .min(16, "INTERNAL_API_SECRET must be at least 16 chars"),
+});
+
+export type Env = z.infer<typeof EnvSchema>;
+
+export const env: Env = EnvSchema.parse(process.env);
+
+export const isProd = env.NODE_ENV === "production";
+export const isTest = env.NODE_ENV === "test";
