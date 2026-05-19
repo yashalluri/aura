@@ -59,6 +59,16 @@ export async function executeAction(
       return null;
     }
 
+    case "set_name": {
+      await api.updateUser(userId, { name: action.name });
+      return null;
+    }
+
+    case "set_timezone": {
+      await api.updateUser(userId, { timezone: action.timezone });
+      return null;
+    }
+
     default:
       return null;
   }

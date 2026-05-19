@@ -11,9 +11,11 @@ datasource db {
 model User {
   id          String   @id @default(cuid())
   phoneNumber String   @unique @map("phone_number")
+  name        String?
   timezone    String   @default("UTC")
   checkInHour Int      @default(8) @map("check_in_hour")
   toneMode    ToneMode @default(neutral) @map("tone_mode")
+  isOnboarded Boolean  @default(false) @map("is_onboarded")
   createdAt   DateTime @default(now()) @map("created_at")
 
   contacts    Contact[]

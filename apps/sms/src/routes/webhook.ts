@@ -85,12 +85,24 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
             routines,
           );
           if (actionResult) {
-            // Action produced an override message (e.g. daily checkin, or error)
             replyText = actionResult;
           }
         } catch (err) {
           req.log.error({ err, action: auraResponse.action }, "action failed");
-          // Still send the LLM text — the action silently failed
+        }
+      }
+
+      // 5b. Auto-flip onboarded once user has a name + at least one contact or routine
+      if (!user.isOnboarded) {
+        // Re-fetch to pick up any changes from actions above (set_name, add_contact, etc.)
+        const [fresh, freshContacts, freshRoutines] = await Promise.all([
+          api.getUser(user.id),
+          api.getContacts(user.id),
+          api.getRoutines(user.id),
+        ]);
+        if (fresh.name && (freshContacts.length > 0 || freshRoutines.length > 0)) {
+          await api.updateUser(user.id, { isOnboarded: true });
+          req.log.info({ userId: user.id }, "user onboarded");
         }
       }
 

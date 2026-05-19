@@ -12,9 +12,11 @@ const CreateUserSchema = z.object({
 });
 
 const UpdateUserSchema = z.object({
+  name: z.string().min(1).optional(),
   timezone: z.string().optional(),
   checkInHour: z.number().int().min(0).max(23).optional(),
   toneMode: z.enum(TONE_MODES as unknown as [string, ...string[]]).optional(),
+  isOnboarded: z.boolean().optional(),
 });
 
 export async function userRoutes(app: FastifyInstance): Promise<void> {
@@ -57,9 +59,11 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
     async (req) => {
       const body = UpdateUserSchema.parse(req.body);
       const data: Record<string, unknown> = {};
+      if (body.name !== undefined) data.name = body.name;
       if (body.timezone !== undefined) data.timezone = body.timezone;
       if (body.checkInHour !== undefined) data.checkInHour = body.checkInHour;
       if (body.toneMode !== undefined) data.toneMode = body.toneMode;
+      if (body.isOnboarded !== undefined) data.isOnboarded = body.isOnboarded;
       const user = await prisma.user
         .update({ where: { id: req.params.userId }, data })
         .catch(() => null);

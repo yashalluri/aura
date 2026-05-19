@@ -25,9 +25,11 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
 export interface ApiUser {
   id: string;
   phoneNumber: string;
+  name: string | null;
   timezone: string;
   checkInHour: number;
   toneMode: ToneMode;
+  isOnboarded: boolean;
   createdAt: string;
 }
 
@@ -80,7 +82,7 @@ export function getUser(userId: string): Promise<ApiUser> {
 
 export function updateUser(
   userId: string,
-  data: Partial<Pick<ApiUser, "timezone" | "checkInHour" | "toneMode">>,
+  data: Partial<Pick<ApiUser, "name" | "timezone" | "checkInHour" | "toneMode" | "isOnboarded">>,
 ): Promise<ApiUser> {
   return api<ApiUser>("PATCH", `/internal/users/${userId}`, data);
 }

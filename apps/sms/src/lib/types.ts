@@ -6,7 +6,9 @@ export type ParsedAction =
   | { action: "routine_done"; routineName: string }
   | { action: "contact_checkin"; contactName: string }
   | { action: "daily_checkin" }
-  | { action: "set_tone"; tone: ToneMode };
+  | { action: "set_tone"; tone: ToneMode }
+  | { action: "set_name"; name: string }
+  | { action: "set_timezone"; timezone: string };
 
 export interface AuraResponse {
   text: string;
