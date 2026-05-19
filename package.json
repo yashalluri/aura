@@ -9,9 +9,9 @@
   ],
   "scripts": {
     "api:dev": "npm run dev --workspace apps/api",
-    "sms:dev": "npm run dev --workspace apps/sms",
+    "conversation:dev": "npm run dev --workspace apps/conversation",
     "web:dev": "npm run dev --workspace apps/web",
-    "sms:test": "npm test --workspace apps/sms",
+    "conversation:test": "npm test --workspace apps/conversation",
     "api:test": "npm test --workspace apps/api"
   },
   "engines": {

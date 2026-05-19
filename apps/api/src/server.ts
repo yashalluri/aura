@@ -12,6 +12,9 @@ import { eventRoutes } from "./routes/events.js";
 import { dailyCheckinRoutes } from "./routes/dailyCheckin.js";
 import { waitlistRoutes } from "./routes/waitlist.js";
 import { debugRoutes } from "./routes/debug.js";
+import { fastifyPlugin as inngestFastify } from "inngest/fastify";
+import { inngest } from "./inngest/client.js";
+import { functions as inngestFunctions } from "./inngest/functions/index.js";
 
 export async function buildServer(): Promise<FastifyInstance> {
   const app = Fastify({
@@ -30,6 +33,13 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // Public routes
   await app.register(healthRoutes);
+
+  // Inngest webhook handler (Inngest dev server + cloud both POST here)
+  await app.register(inngestFastify, {
+    client: inngest,
+    functions: inngestFunctions,
+    options: {},
+  });
 
   // Internal routes (Bearer secret)
   await app.register(async (instance) => {

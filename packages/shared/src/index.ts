@@ -53,3 +53,5 @@ export interface DailySuggestion {
   contactsToNudge: ContactNudge[];
   routinesToNudge: RoutineNudge[];
 }
+
+export * from "./channels.js";

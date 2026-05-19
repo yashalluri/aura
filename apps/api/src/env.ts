@@ -10,6 +10,10 @@ const EnvSchema = z.object({
   INTERNAL_API_SECRET: z
     .string()
     .min(16, "INTERNAL_API_SECRET must be at least 16 chars"),
+  CONVERSATION_BASE_URL: z
+    .string()
+    .url()
+    .default("http://localhost:3002"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

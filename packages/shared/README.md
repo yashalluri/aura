@@ -1,6 +1,6 @@
 # @aura/shared
 
-Shared TypeScript types used across `apps/api`, `apps/sms`, and `apps/web`.
+Shared TypeScript types used across `apps/api`, `apps/conversation`, and `apps/web`.
 
 ## Planned exports
 

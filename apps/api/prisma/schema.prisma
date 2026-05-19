@@ -9,19 +9,23 @@ datasource db {
 }
 
 model User {
-  id          String   @id @default(cuid())
-  phoneNumber String   @unique @map("phone_number")
-  name        String?
-  timezone    String   @default("UTC")
-  checkInHour Int      @default(8) @map("check_in_hour")
-  toneMode    ToneMode @default(neutral) @map("tone_mode")
-  isOnboarded Boolean  @default(false) @map("is_onboarded")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String    @id @default(cuid())
+  phoneNumber     String    @unique @map("phone_number")
+  name            String?
+  timezone        String    @default("UTC")
+  checkInHour     Int       @default(8) @map("check_in_hour")
+  toneMode        ToneMode  @default(neutral) @map("tone_mode")
+  isOnboarded     Boolean   @default(false) @map("is_onboarded")
+  mutedUntil      DateTime? @map("muted_until")
+  quietHoursStart Int?      @map("quiet_hours_start")
+  quietHoursEnd   Int?      @map("quiet_hours_end")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
-  contacts    Contact[]
-  routines    Routine[]
-  events      EventLog[]
-  suggestions DailySuggestionRow[]
+  contacts        Contact[]
+  routines        Routine[]
+  events          EventLog[]
+  suggestions     DailySuggestionRow[]
+  outboundMessages OutboundMessage[]
 
   @@map("users")
 }
@@ -90,6 +94,22 @@ model Waitlist {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("waitlist")
+}
+
+model OutboundMessage {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  channel     String   // "imessage" | "voice"
+  eventType   String   @map("event_type") // "daily_checkin" | "reach_out" | "routine_nudge" | "draft_prompt" | etc
+  body        String
+  sentAt      DateTime @default(now()) @map("sent_at")
+  providerSid String?  @map("provider_sid")
+  replyTo     String?  @map("reply_to")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sentAt])
+  @@map("outbound_messages")
 }
 
 enum RelationshipType {

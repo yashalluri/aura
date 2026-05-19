@@ -4,12 +4,12 @@ const EnvSchema = z.object({
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .default("development"),
-  SMS_PORT: z.coerce.number().int().positive().default(3002),
+  CONVERSATION_PORT: z.coerce.number().int().positive().default(3002),
 
-  // Twilio
-  TWILIO_ACCOUNT_SID: z.string().min(1, "TWILIO_ACCOUNT_SID is required"),
-  TWILIO_AUTH_TOKEN: z.string().min(1, "TWILIO_AUTH_TOKEN is required"),
-  TWILIO_PHONE_NUMBER: z.string().min(1, "TWILIO_PHONE_NUMBER is required"),
+  // Photon Spectrum (iMessage)
+  PHOTON_PROJECT_ID: z.string().min(1, "PHOTON_PROJECT_ID is required"),
+  PHOTON_PROJECT_SECRET: z.string().min(1, "PHOTON_PROJECT_SECRET is required"),
+  PHOTON_LINE_NUMBER: z.string().min(1, "PHOTON_LINE_NUMBER is required"),
 
   // OpenAI
   OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
