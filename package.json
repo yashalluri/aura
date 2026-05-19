@@ -10,9 +10,15 @@
   "scripts": {
     "api:dev": "npm run dev --workspace apps/api",
     "sms:dev": "npm run dev --workspace apps/sms",
-    "web:dev": "npm run dev --workspace apps/web"
+    "web:dev": "npm run dev --workspace apps/web",
+    "sms:test": "npm test --workspace apps/sms",
+    "api:test": "npm test --workspace apps/api"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.2",
+    "typescript": "^5.9.3"
   }
 }
