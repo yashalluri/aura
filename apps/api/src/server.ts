@@ -10,6 +10,7 @@ import { contactRoutes } from "./routes/contacts.js";
 import { routineRoutes } from "./routes/routines.js";
 import { eventRoutes } from "./routes/events.js";
 import { dailyCheckinRoutes } from "./routes/dailyCheckin.js";
+import { waitlistRoutes } from "./routes/waitlist.js";
 import { debugRoutes } from "./routes/debug.js";
 
 export async function buildServer(): Promise<FastifyInstance> {
@@ -38,6 +39,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     await instance.register(routineRoutes);
     await instance.register(eventRoutes);
     await instance.register(dailyCheckinRoutes);
+    await instance.register(waitlistRoutes);
   }, { prefix: "/internal" });
 
   // Debug routes (dev only, also gated by secret)

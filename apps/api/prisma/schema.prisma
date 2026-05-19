@@ -84,6 +84,14 @@ model DailySuggestionRow {
   @@map("daily_suggestions")
 }
 
+model Waitlist {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("waitlist")
+}
+
 enum RelationshipType {
   inner_circle
   friend
