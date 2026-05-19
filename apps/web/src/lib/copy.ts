@@ -42,8 +42,10 @@ export const copy = {
   },
   waitlist: {
     title: "get early access",
-    sub: "drop your email and we'll text you when aura is ready.",
-    buttonText: "join the waitlist",
-    successText: "you're in 💜 we'll be in touch.",
+    sub: "drop your number — aura will be ready to text the second you submit.",
+    buttonText: "give me access",
+    successText:
+      "you're in 💜 text aura at +1 (628) 264-6604 anytime to start",
+    placeholder: "+1 (555) 555-1234",
   },
 } as const;

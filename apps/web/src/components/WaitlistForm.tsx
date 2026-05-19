@@ -3,24 +3,54 @@
 import { useState } from "react";
 import { copy } from "@/lib/copy";
 
+/**
+ * Best-effort normalization to E.164. Strips everything but digits and a leading
+ * "+". If the user typed a US number without country code, prefix +1.
+ */
+function normalizePhone(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const hasPlus = trimmed.startsWith("+");
+  const digits = trimmed.replace(/\D/g, "");
+  if (!digits) return null;
+  if (hasPlus) return `+${digits}`;
+  // US default
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return `+${digits}`;
+}
+
 export function WaitlistForm() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "done" | "error"
+  >("idle");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email) return;
+    const normalized = normalizePhone(phone);
+    if (!normalized) {
+      setErrorMsg("enter a valid phone number");
+      setStatus("error");
+      return;
+    }
     setStatus("loading");
+    setErrorMsg(null);
     try {
       const res = await fetch("/api/waitlist", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ phoneNumber: normalized }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "failed");
+      }
       setStatus("done");
-      setEmail("");
-    } catch {
+      setPhone("");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "something went wrong");
       setStatus("error");
     }
   }
@@ -34,13 +64,18 @@ export function WaitlistForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
+    >
       <input
-        type="email"
+        type="tel"
         required
-        placeholder="your@email.com"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
+        inputMode="tel"
+        autoComplete="tel"
+        placeholder={copy.waitlist.placeholder}
+        value={phone}
+        onChange={(e) => setPhone(e.target.value)}
         className="flex-1 bg-white/5 border border-aura-border rounded-full px-5 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-aura-purple/50 text-sm"
       />
       <button
@@ -50,8 +85,10 @@ export function WaitlistForm() {
       >
         {status === "loading" ? "..." : copy.waitlist.buttonText}
       </button>
-      {status === "error" && (
-        <p className="text-red-400 text-sm text-center sm:text-left">something went wrong, try again</p>
+      {status === "error" && errorMsg && (
+        <p className="text-red-400 text-sm text-center sm:text-left">
+          {errorMsg}
+        </p>
       )}
     </form>
   );
