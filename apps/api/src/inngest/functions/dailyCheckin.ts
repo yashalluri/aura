@@ -91,17 +91,10 @@ export const dailyCheckinSender: InngestFunction.Any = inngest.createFunction(
       return (await res.json()) as { sentAt: string; body: string };
     });
 
-    await step.run("record-outbound", () =>
-      prisma.outboundMessage.create({
-        data: {
-          userId: user.id,
-          channel: "imessage",
-          eventType: "daily_checkin",
-          body: result.body,
-          sentAt: new Date(result.sentAt),
-        },
-      }),
-    );
+    // OutboundMessage is now recorded by the conversation service's
+    // /internal/send-checkin endpoint via api.recordOutbound() so the
+    // Phase 2 governor sees it in the next dedupe/cooldown check.
+    // We avoid double-writing here.
 
     logger.info({ userId }, "daily checkin delivered");
     return { userId, sentAt: result.sentAt };

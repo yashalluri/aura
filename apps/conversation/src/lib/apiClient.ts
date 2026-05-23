@@ -30,6 +30,9 @@ export interface ApiUser {
   checkInHour: number;
   toneMode: ToneMode;
   isOnboarded: boolean;
+  mutedUntil: string | null;
+  quietHoursStart: number | null;
+  quietHoursEnd: number | null;
   createdAt: string;
 }
 
@@ -357,4 +360,38 @@ export function dispatchSpecialist(
     `/internal/users/${userId}/specialists/dispatch`,
     data,
   );
+}
+
+// ── Outbound message tracking (Phase 2 governor) ────────────────────
+
+export interface ApiOutboundRow {
+  id: string;
+  channel: string;
+  eventType: string;
+  sentAt: string;
+  providerSid: string | null;
+  replyTo: string | null;
+}
+
+export function getRecentOutbound(
+  userId: string,
+  sinceMinutes = 1440,
+): Promise<ApiOutboundRow[]> {
+  return api<ApiOutboundRow[]>(
+    "GET",
+    `/internal/users/${userId}/outbound?sinceMinutes=${sinceMinutes}`,
+  );
+}
+
+export function recordOutbound(
+  userId: string,
+  data: {
+    channel: string;
+    eventType: string;
+    body: string;
+    providerSid?: string;
+    replyTo?: string;
+  },
+): Promise<ApiOutboundRow> {
+  return api<ApiOutboundRow>("POST", `/internal/users/${userId}/outbound`, data);
 }

@@ -13,6 +13,9 @@ function makeUser(overrides: Partial<ApiUser> = {}): ApiUser {
     checkInHour: 8,
     toneMode: "gen_z",
     isOnboarded: false,
+    mutedUntil: null,
+    quietHoursStart: null,
+    quietHoursEnd: null,
     createdAt: new Date().toISOString(),
     ...overrides,
   };
