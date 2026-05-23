@@ -15,6 +15,8 @@ import { messageRoutes } from "./routes/messages.js";
 import { memoryRoutes } from "./routes/memories.js";
 import { entityRoutes } from "./routes/entities.js";
 import { outboundRoutes } from "./routes/outbound.js";
+import { integrationRoutes } from "./routes/integrations.js";
+import { signalsRoutes, publicSignalsRoutes } from "./routes/signals.js";
 import { debugRoutes } from "./routes/debug.js";
 import { fastifyPlugin as inngestFastify } from "inngest/fastify";
 import { inngest } from "./inngest/client.js";
@@ -58,7 +60,13 @@ export async function buildServer(): Promise<FastifyInstance> {
     await instance.register(memoryRoutes);
     await instance.register(entityRoutes);
     await instance.register(outboundRoutes);
+    await instance.register(integrationRoutes);
+    await instance.register(signalsRoutes);
   }, { prefix: "/internal" });
+
+  // Public signal webhooks (token-authed via URL, not Bearer). Mounted at
+  // root so Shortcuts can POST to /signals/:app/:token directly.
+  await app.register(publicSignalsRoutes);
 
   // Debug routes (dev only, also gated by secret)
   if (!isProd) {

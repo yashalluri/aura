@@ -31,6 +31,8 @@ model User {
   memories         Memory[]
   entities         Entity[]
   memoryAccesses   MemoryAccess[]
+  integrations     IntegrationConnection[]
+  signalEvents     SignalEvent[]
 
   @@map("users")
 }
@@ -245,4 +247,44 @@ model MemoryAccess {
   @@index([userId, accessedAt(sort: Desc)])
   @@index([memoryId])
   @@map("memory_accesses")
+}
+
+// ── Phase 4: integrations + signals ─────────────────────────────────────────
+
+model IntegrationConnection {
+  id                   String    @id @default(cuid())
+  userId               String    @map("user_id")
+  app                  String    // "google_calendar" | "apple_health" | "icloud_mail" | ...
+  status               String    @default("active") // active | revoked | error
+  scopes               String[]  @default([])
+  composioConnectionId String?   @map("composio_connection_id")
+  webhookToken         String?   @unique @map("webhook_token")
+  connectedAt          DateTime  @default(now()) @map("connected_at")
+  lastSyncAt           DateTime? @map("last_sync_at")
+  settings             Json      @default("{}")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, app])
+  @@map("integration_connections")
+}
+
+model SignalEvent {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  source     String   // "google_calendar" | "apple_health" | "apple_screen_time" | ...
+  kind       String   // "calendar.event" | "health.sleep" | "screentime.session" | ...
+  occurredAt DateTime @map("occurred_at")
+  summary    String
+  payload    Json     @default("{}")
+  ingested   Boolean  @default(false)
+  ingestErr  String?  @map("ingest_err")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, source])
+  @@index([userId, ingested])
+  @@map("signal_events")
 }
