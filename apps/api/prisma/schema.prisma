@@ -19,13 +19,18 @@ model User {
   mutedUntil      DateTime? @map("muted_until")
   quietHoursStart Int?      @map("quiet_hours_start")
   quietHoursEnd   Int?      @map("quiet_hours_end")
+  encKey          String?   @map("enc_key")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  contacts        Contact[]
-  routines        Routine[]
-  events          EventLog[]
-  suggestions     DailySuggestionRow[]
+  contacts         Contact[]
+  routines         Routine[]
+  events           EventLog[]
+  suggestions      DailySuggestionRow[]
   outboundMessages OutboundMessage[]
+  messages         Message[]
+  memories         Memory[]
+  entities         Entity[]
+  memoryAccesses   MemoryAccess[]
 
   @@map("users")
 }
@@ -129,4 +134,115 @@ enum ToneMode {
   neutral
   millennial
   gen_z
+}
+
+// ── Phase 1: persistent memory + knowledge graph ─────────────────────────────
+
+enum MemoryKind {
+  fact
+  preference
+  event
+  relationship
+  goal
+  value
+  pattern
+}
+
+enum EntityKind {
+  person
+  place
+  project
+  topic
+  habit
+  media
+  org
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  role      String   // "user" | "assistant" | "system"
+  content   String
+  channel   String?  // "imessage" | "voice" | ...
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+model Memory {
+  id             String     @id @default(cuid())
+  userId         String     @map("user_id")
+  kind           MemoryKind
+  content        String     // encrypted at rest via User.encKey
+  // embedding is pgvector(1536); accessed via raw SQL (see services/memory.ts)
+  embedding      Unsupported("vector(1536)")?
+  importance     Float      @default(0.5)
+  confidence     Float      @default(0.7)
+  source         String
+  attrs          Json       @default("{}")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  lastRecalledAt DateTime?  @map("last_recalled_at")
+  decayedAt      DateTime?  @map("decayed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([userId, importance(sort: Desc)])
+  @@map("memories")
+}
+
+model Entity {
+  id        String     @id @default(cuid())
+  userId    String     @map("user_id")
+  kind      EntityKind
+  canonical String
+  aliases   String[]   @default([])
+  attrs     Json       @default("{}")
+  embedding Unsupported("vector(1536)")?
+  contactId String?    @unique @map("contact_id")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @default(now()) @updatedAt @map("updated_at")
+
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  relationsFrom  Relation[] @relation("RelationFrom")
+  relationsTo    Relation[] @relation("RelationTo")
+
+  @@index([userId, kind])
+  @@map("entities")
+}
+
+model Relation {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  fromId      String    @map("from_id")
+  toId        String    @map("to_id")
+  kind        String
+  strength    Float     @default(0.5)
+  lastEventAt DateTime? @map("last_event_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  from Entity @relation("RelationFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   Entity @relation("RelationTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([userId, fromId])
+  @@index([userId, toId])
+  @@map("relations")
+}
+
+model MemoryAccess {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  memoryId   String   @map("memory_id")
+  accessedAt DateTime @default(now()) @map("accessed_at")
+  actor      String
+  context    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, accessedAt(sort: Desc)])
+  @@index([memoryId])
+  @@map("memory_accesses")
 }
