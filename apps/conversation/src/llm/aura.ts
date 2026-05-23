@@ -84,7 +84,7 @@ export async function generateResponse(
   const completion = await openai.chat.completions.create({
     model,
     messages,
-    max_tokens: 400,
+    max_completion_tokens: 400,
     temperature: 0.85,
   });
 
@@ -143,7 +143,7 @@ export async function formatDailyCheckin(
           content: "morning",
         },
       ],
-      max_tokens: 120,
+      max_completion_tokens: 120,
       temperature: 0.9,
     });
     const raw = completion.choices[0]?.message?.content ?? "morning\n\nu got this today";
@@ -169,7 +169,7 @@ export async function formatDailyCheckin(
         content: nudgeBlock,
       },
     ],
-    max_tokens: 220,
+    max_completion_tokens: 220,
     temperature: 0.85,
   });
 

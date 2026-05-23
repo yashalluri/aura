@@ -236,7 +236,7 @@ Rules: lowercase, blank lines between, 3-12 words each. No bullets.
 Return only the bursts.`,
           },
         ],
-        max_tokens: 200,
+        max_completion_tokens: 200,
         temperature: 0.85,
       });
       const raw = completion.choices[0]?.message?.content;
@@ -278,7 +278,7 @@ Rules:
 Return the bursts separated by blank lines.`,
       },
     ],
-    max_tokens: 280,
+    max_completion_tokens: 280,
     temperature: 0.8,
   });
   return completion.choices[0]?.message?.content?.trim() ?? "couldnt read it\n\ntry pasting again";
@@ -323,7 +323,7 @@ Rules per draft:
 Return JSON: {"drafts":[{"flavor":"...","text":"..."},...]}.`,
       },
     ],
-    max_tokens: 350,
+    max_completion_tokens: 350,
     temperature: 0.85,
     response_format: { type: "json_object" },
   });
@@ -374,7 +374,7 @@ Rules per draft:
 Return JSON: {"drafts":[{"flavor":"direct","text":"..."},{"flavor":"soft","text":"..."}]}.`,
       },
     ],
-    max_tokens: 500,
+    max_completion_tokens: 500,
     temperature: 0.85,
     response_format: { type: "json_object" },
   });
@@ -413,7 +413,7 @@ Rules:
 Return ONLY the draft text, no preamble.`,
       },
     ],
-    max_tokens: 150,
+    max_completion_tokens: 150,
     temperature: 0.85,
   });
   return completion.choices[0]?.message?.content?.trim() ?? "hey";
