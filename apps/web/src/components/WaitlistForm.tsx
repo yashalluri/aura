@@ -20,12 +20,20 @@ function normalizePhone(raw: string): string | null {
   return `+${digits}`;
 }
 
+function prettyPhone(e164: string): string {
+  // +16282646604 → +1 (628) 264-6604
+  const m = e164.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  if (m) return `+1 (${m[1]}) ${m[2]}-${m[3]}`;
+  return e164;
+}
+
 export function WaitlistForm() {
   const [phone, setPhone] = useState("");
   const [status, setStatus] = useState<
     "idle" | "loading" | "done" | "error"
   >("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [assignedNumber, setAssignedNumber] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,6 +55,8 @@ export function WaitlistForm() {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(data.error ?? "failed");
       }
+      const data = (await res.json()) as { assignedPhoneNumber?: string | null };
+      setAssignedNumber(data.assignedPhoneNumber ?? null);
       setStatus("done");
       setPhone("");
     } catch (err) {
@@ -57,9 +67,30 @@ export function WaitlistForm() {
 
   if (status === "done") {
     return (
-      <p className="text-aura-purple text-lg font-medium text-center">
-        {copy.waitlist.successText}
-      </p>
+      <div className="text-center space-y-3">
+        <p className="text-aura-purple text-lg font-medium">
+          you&apos;re in 💜
+        </p>
+        {assignedNumber ? (
+          <p className="text-white text-base">
+            your aura is{" "}
+            <a
+              href={`sms:${assignedNumber}`}
+              className="font-mono font-semibold underline decoration-aura-purple decoration-2 underline-offset-4"
+            >
+              {prettyPhone(assignedNumber)}
+            </a>
+            <br />
+            <span className="text-white/60 text-sm">
+              tap to text — say hi to start
+            </span>
+          </p>
+        ) : (
+          <p className="text-white/70 text-sm">
+            check your dashboard for the number to text
+          </p>
+        )}
+      </div>
     );
   }
 

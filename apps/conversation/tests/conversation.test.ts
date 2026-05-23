@@ -1,58 +1,106 @@
-import { describe, it, beforeEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { getHistory, addMessage, clearHistory, type Message } from "../src/lib/conversation.js";
+import { getHistory, addMessage, clearHistory } from "../src/lib/conversation.js";
 
-const phone = "+15551234567";
+// Conversation history is now API-backed. These tests stub fetch to verify
+// that the conversation lib correctly delegates to the API.
 
-function msg(role: "user" | "assistant", content: string, timestamp?: number): Message {
-  return { role, content, timestamp: timestamp ?? Date.now() };
+const userId = "user_test_1";
+
+interface FetchCall {
+  method: string;
+  url: string;
+  body?: unknown;
 }
 
-describe("conversation store", () => {
-  beforeEach(() => {
-    clearHistory(phone);
+let fetchCalls: FetchCall[];
+let fetchResponse: { status: number; body: unknown };
+let originalFetch: typeof globalThis.fetch;
+
+beforeEach(() => {
+  fetchCalls = [];
+  fetchResponse = { status: 200, body: [] };
+  originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: Request | string | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const method = init?.method ?? "GET";
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    fetchCalls.push({ method, url, body });
+    return {
+      status: fetchResponse.status,
+      ok: fetchResponse.status >= 200 && fetchResponse.status < 300,
+      json: async () => fetchResponse.body,
+    } as Response;
+  }) as typeof globalThis.fetch;
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
+
+describe("conversation history (API-backed)", () => {
+  it("getHistory returns mapped messages from the API (oldest first)", async () => {
+    fetchResponse = {
+      status: 200,
+      body: [
+        {
+          id: "m1",
+          userId,
+          role: "user",
+          content: "hi",
+          channel: null,
+          createdAt: "2026-05-19T10:00:00.000Z",
+        },
+        {
+          id: "m2",
+          userId,
+          role: "assistant",
+          content: "hii",
+          channel: null,
+          createdAt: "2026-05-19T10:00:05.000Z",
+        },
+      ],
+    };
+    const history = await getHistory(userId);
+    assert.equal(history.length, 2);
+    assert.equal(history[0]!.role, "user");
+    assert.equal(history[0]!.content, "hi");
+    assert.equal(history[1]!.role, "assistant");
+    assert.equal(history[1]!.content, "hii");
+    assert.equal(fetchCalls.length, 1);
+    assert.match(fetchCalls[0]!.url, new RegExp(`/users/${userId}/messages\\?limit=50$`));
+    assert.equal(fetchCalls[0]!.method, "GET");
   });
 
-  it("returns empty array for unknown phone", () => {
-    assert.deepStrictEqual(getHistory("+10000000000"), []);
+  it("getHistory returns empty array on API failure", async () => {
+    fetchResponse = { status: 500, body: { error: "boom" } };
+    const history = await getHistory(userId);
+    assert.deepEqual(history, []);
   });
 
-  it("stores and retrieves messages", () => {
-    addMessage(phone, msg("user", "hello"));
-    addMessage(phone, msg("assistant", "hey!"));
-    const h = getHistory(phone);
-    assert.equal(h.length, 2);
-    assert.equal(h[0]!.content, "hello");
-    assert.equal(h[1]!.content, "hey!");
+  it("addMessage POSTs to the API", async () => {
+    fetchResponse = {
+      status: 201,
+      body: { id: "m1", userId, role: "user", content: "hi", channel: null, createdAt: "x" },
+    };
+    await addMessage(userId, { role: "user", content: "hi", timestamp: Date.now() });
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0]!.method, "POST");
+    assert.match(fetchCalls[0]!.url, new RegExp(`/users/${userId}/messages$`));
+    assert.equal((fetchCalls[0]!.body as { content: string }).content, "hi");
   });
 
-  it("caps at 20 messages", () => {
-    for (let i = 0; i < 25; i++) {
-      addMessage(phone, msg("user", `msg-${i}`));
-    }
-    const h = getHistory(phone);
-    assert.equal(h.length, 20);
-    assert.equal(h[0]!.content, "msg-5");
-    assert.equal(h[19]!.content, "msg-24");
+  it("clearHistory DELETEs from the API", async () => {
+    fetchResponse = { status: 200, body: { deleted: 5 } };
+    await clearHistory(userId);
+    assert.equal(fetchCalls.length, 1);
+    assert.equal(fetchCalls[0]!.method, "DELETE");
   });
 
-  it("clears history", () => {
-    addMessage(phone, msg("user", "hi"));
-    clearHistory(phone);
-    assert.deepStrictEqual(getHistory(phone), []);
-  });
-
-  it("expires conversations after 4 hours of inactivity", () => {
-    const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000 - 1;
-    addMessage(phone, msg("user", "old message", fourHoursAgo));
-    const h = getHistory(phone);
-    assert.equal(h.length, 0);
-  });
-
-  it("keeps conversations within 4 hour window", () => {
-    const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1000;
-    addMessage(phone, msg("user", "recent", threeHoursAgo));
-    const h = getHistory(phone);
-    assert.equal(h.length, 1);
+  it("addMessage failures are swallowed (never throws)", async () => {
+    fetchResponse = { status: 500, body: { error: "boom" } };
+    // Should not throw
+    await addMessage(userId, { role: "user", content: "hi", timestamp: Date.now() });
+    assert.ok(true);
   });
 });

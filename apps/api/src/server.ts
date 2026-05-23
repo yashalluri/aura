@@ -12,6 +12,16 @@ import { eventRoutes } from "./routes/events.js";
 import { dailyCheckinRoutes } from "./routes/dailyCheckin.js";
 import { waitlistRoutes } from "./routes/waitlist.js";
 import { debugRoutes } from "./routes/debug.js";
+import { messageRoutes } from "./routes/messages.js";
+import { memoryRoutes } from "./routes/memories.js";
+import { entityRoutes } from "./routes/entities.js";
+import { integrationRoutes } from "./routes/integrations.js";
+import { signalsRoutes, publicSignalsRoutes } from "./routes/signals.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { groupRoutes } from "./routes/groups.js";
+import { goalRoutes } from "./routes/goals.js";
+import { nudgeRoutes } from "./routes/nudges.js";
+import { specialistRoutes } from "./routes/specialists.js";
 import { fastifyPlugin as inngestFastify } from "inngest/fastify";
 import { inngest } from "./inngest/client.js";
 import { functions as inngestFunctions } from "./inngest/functions/index.js";
@@ -50,7 +60,20 @@ export async function buildServer(): Promise<FastifyInstance> {
     await instance.register(eventRoutes);
     await instance.register(dailyCheckinRoutes);
     await instance.register(waitlistRoutes);
+    await instance.register(messageRoutes);
+    await instance.register(memoryRoutes);
+    await instance.register(entityRoutes);
+    await instance.register(integrationRoutes);
+    await instance.register(signalsRoutes);
+    await instance.register(settingsRoutes);
+    await instance.register(groupRoutes);
+    await instance.register(goalRoutes);
+    await instance.register(nudgeRoutes);
+    await instance.register(specialistRoutes);
   }, { prefix: "/internal" });
+
+  // Public (token-authed) routes — no Bearer required.
+  await app.register(publicSignalsRoutes);
 
   // Debug routes (dev only, also gated by secret)
   if (!isProd) {

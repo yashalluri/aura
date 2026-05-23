@@ -44,8 +44,6 @@ export const copy = {
     title: "get early access",
     sub: "drop your number — aura will be ready to text the second you submit.",
     buttonText: "give me access",
-    successText:
-      "you're in 💜 text aura at +1 (628) 264-6604 anytime to start",
     placeholder: "+1 (555) 555-1234",
   },
 } as const;

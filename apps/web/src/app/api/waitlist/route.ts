@@ -52,13 +52,25 @@ export async function POST(request: Request) {
   );
 
   if (res.ok) {
-    return NextResponse.json({ ok: true });
+    const data = (await res.json().catch(() => ({}))) as {
+      data?: { assignedPhoneNumber?: string };
+    };
+    return NextResponse.json({
+      ok: true,
+      assignedPhoneNumber: data.data?.assignedPhoneNumber ?? null,
+    });
   }
 
-  // Treat duplicate as success (idempotent signup).
+  // Treat duplicate as success (idempotent signup). Photon doesn't return the
+  // assigned number on duplicate, so we ask the caller to look it up via list-users
+  // OR the user can find it in the prior signup confirmation.
   const text = await res.text();
   if (res.status === 409 || /exist|duplicate/i.test(text)) {
-    return NextResponse.json({ ok: true, alreadyExisted: true });
+    return NextResponse.json({
+      ok: true,
+      alreadyExisted: true,
+      assignedPhoneNumber: null,
+    });
   }
 
   return NextResponse.json(

@@ -5,22 +5,42 @@ import { executeAction } from "./actions.js";
 import { getHistory, addMessage } from "./conversation.js";
 
 /**
- * Channel-agnostic inbound message handler. Returns the reply text.
- * Called by every channel adapter (iMessage today; voice eventually).
+ * Channel-agnostic inbound message handler.
+ *
+ * Flow:
+ *  1. Resolve user
+ *  2. Load history + contacts + routines + retrieved memories (in parallel)
+ *  3. Persist the user's message *before* generating (so memory extraction has it)
+ *  4. Generate Aura's reply with full context
+ *  5. Execute action if any
+ *  6. Persist the assistant's reply
+ *  7. Return bursts to the channel adapter to send
  */
 export async function handleInbound(
   from: string,
   text: string,
   log: FastifyBaseLogger,
-): Promise<string> {
+): Promise<string[]> {
   log.info({ from, text }, "inbound message");
 
   const user = await api.getOrCreateUser(from);
-  const [contacts, routines] = await Promise.all([
+
+  // Parallel context load
+  const [contacts, routines, history, memories] = await Promise.all([
     api.getContacts(user.id),
     api.getRoutines(user.id),
+    getHistory(user.id),
+    // Retrieve memories relevant to the incoming message. Cold-start friendly:
+    // if there are no memories, this returns [].
+    api.retrieveMemories(user.id, text, 8).catch((err) => {
+      log.warn({ err }, "memory retrieve failed; continuing without");
+      return [] as api.ApiMemory[];
+    }),
   ]);
-  const history = getHistory(from);
+
+  // Persist the inbound message *before* generating so the extraction job
+  // gets the freshest window.
+  await addMessage(user.id, { role: "user", content: text, timestamp: Date.now() });
 
   const auraResponse = await generateResponse(
     text,
@@ -28,9 +48,10 @@ export async function handleInbound(
     contacts,
     routines,
     history,
+    memories,
   );
 
-  let replyText = auraResponse.text;
+  let replyBursts = auraResponse.bursts;
   if (auraResponse.action) {
     try {
       const actionResult = await executeAction(
@@ -39,12 +60,13 @@ export async function handleInbound(
         contacts,
         routines,
       );
-      if (actionResult) replyText = actionResult;
+      if (actionResult && actionResult.length) replyBursts = actionResult;
     } catch (err) {
       log.error({ err, action: auraResponse.action }, "action failed");
     }
   }
 
+  // Onboarding completion check — unchanged
   if (!user.isOnboarded) {
     const [fresh, freshContacts, freshRoutines] = await Promise.all([
       api.getUser(user.id),
@@ -57,8 +79,13 @@ export async function handleInbound(
     }
   }
 
-  addMessage(from, { role: "user", content: text, timestamp: Date.now() });
-  addMessage(from, { role: "assistant", content: replyText, timestamp: Date.now() });
+  // Persist the assistant reply (combined, so the LLM sees the full thought
+  // on the next turn). Bursts are sent separately to the user by the channel.
+  await addMessage(user.id, {
+    role: "assistant",
+    content: replyBursts.join("\n\n"),
+    timestamp: Date.now(),
+  });
 
-  return replyText;
+  return replyBursts;
 }
