@@ -7,7 +7,7 @@
     "dev": "tsx watch --env-file=../../.env src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node --env-file=../../.env dist/index.js",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "NODE_ENV=test node --import tsx --env-file=../../.env --test tests/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

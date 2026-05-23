@@ -14,6 +14,13 @@ const EnvSchema = z.object({
     .string()
     .url()
     .default("http://localhost:3002"),
+
+  // Phase 1 — memory extraction (OpenAI) + envelope encryption (KMS root key)
+  OPENAI_API_KEY: z.string().min(1, "OPENAI_API_KEY is required"),
+  KMS_ROOT_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, "KMS_ROOT_KEY must be 64 hex chars (32 bytes). Generate with: openssl rand -hex 32")
+    .optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

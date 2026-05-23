@@ -11,6 +11,9 @@ import { routineRoutes } from "./routes/routines.js";
 import { eventRoutes } from "./routes/events.js";
 import { dailyCheckinRoutes } from "./routes/dailyCheckin.js";
 import { waitlistRoutes } from "./routes/waitlist.js";
+import { messageRoutes } from "./routes/messages.js";
+import { memoryRoutes } from "./routes/memories.js";
+import { entityRoutes } from "./routes/entities.js";
 import { debugRoutes } from "./routes/debug.js";
 import { fastifyPlugin as inngestFastify } from "inngest/fastify";
 import { inngest } from "./inngest/client.js";
@@ -50,6 +53,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     await instance.register(eventRoutes);
     await instance.register(dailyCheckinRoutes);
     await instance.register(waitlistRoutes);
+    await instance.register(messageRoutes);
+    await instance.register(memoryRoutes);
+    await instance.register(entityRoutes);
   }, { prefix: "/internal" });
 
   // Debug routes (dev only, also gated by secret)
