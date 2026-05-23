@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
 }
 
 model User {
@@ -19,6 +21,9 @@ model User {
   mutedUntil      DateTime? @map("muted_until")
   quietHoursStart Int?      @map("quiet_hours_start")
   quietHoursEnd   Int?      @map("quiet_hours_end")
+  // Encrypted-at-rest user-level key (envelope: wrapped with KMS_ROOT_KEY).
+  // Used to encrypt Memory.content (Sprint 4) and Message.content (Sprint 4+).
+  encKey          String?   @map("enc_key")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   contacts        Contact[]
@@ -26,8 +31,36 @@ model User {
   events          EventLog[]
   suggestions     DailySuggestionRow[]
   outboundMessages OutboundMessage[]
+  messages        Message[]
+  memories        Memory[]
+  entities        Entity[]
+  relations       Relation[]
+  integrations    IntegrationConnection[]
+  signalEvents    SignalEvent[]
+  memoryAccesses  MemoryAccess[]
+  ownedGroupSpaces GroupSpace[]    @relation("GroupOwner")
+  groupParticipations GroupParticipant[]
+  goals           Goal[]
+  nudgeSchedules  NudgeSchedule[]
 
   @@map("users")
+}
+
+// Audit log — every read of a memory into a prompt context logs here.
+// Users can answer "where did you learn that?" from this trail.
+model MemoryAccess {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  memoryId    String   @map("memory_id")
+  accessedAt  DateTime @default(now()) @map("accessed_at")
+  actor       String   // "conversation" | "agent:morning_brief" | "agent:relationship_pulse" | etc.
+  context     String?  // "personal_1on1" | "group_<id>" | "settings_browse" | etc.
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, accessedAt(sort: Desc)])
+  @@index([memoryId])
+  @@map("memory_accesses")
 }
 
 model Contact {
@@ -99,8 +132,8 @@ model Waitlist {
 model OutboundMessage {
   id          String   @id @default(cuid())
   userId      String   @map("user_id")
-  channel     String   // "imessage" | "voice"
-  eventType   String   @map("event_type") // "daily_checkin" | "reach_out" | "routine_nudge" | "draft_prompt" | etc
+  channel     String
+  eventType   String   @map("event_type")
   body        String
   sentAt      DateTime @default(now()) @map("sent_at")
   providerSid String?  @map("provider_sid")
@@ -110,6 +143,100 @@ model OutboundMessage {
 
   @@index([userId, sentAt])
   @@map("outbound_messages")
+}
+
+// ── Persistent memory layer (P0.1) ──────────────────────────────
+
+// Episodic memory — raw conversation history. The LLM gets the last N
+// of these every turn instead of relying on a 4-hour in-process Map.
+// `content` will be encrypted in Sprint 4 (privacy phase); plaintext for now.
+model Message {
+  id                  String   @id @default(cuid())
+  userId              String   @map("user_id")
+  role                String   // "user" | "assistant" | "system"
+  content             String   @db.Text
+  channel             String?  // "imessage" | "voice" | "internal" — null = chat default
+  // Sprint 5: group chat support. null = 1:1 conversation (Aura ↔ user).
+  groupSpaceId        String?  @map("group_space_id")
+  authorParticipantId String?  @map("author_participant_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  groupSpace       GroupSpace?       @relation(fields: [groupSpaceId], references: [id], onDelete: Cascade)
+  authorParticipant GroupParticipant? @relation(fields: [authorParticipantId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([groupSpaceId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+// Semantic memory — structured facts the LLM extracts from conversation
+// and integrations. Embedded with text-embedding-3-small (1536 dims).
+// `importance` decays over time unless reinforced by reuse.
+model Memory {
+  id              String                       @id @default(cuid())
+  userId          String                       @map("user_id")
+  kind            MemoryKind
+  content         String                       @db.Text
+  // pgvector column — managed via raw SQL (Prisma doesn't natively type it)
+  embedding       Unsupported("vector(1536)")?
+  importance      Float                        @default(0.5)
+  confidence      Float                        @default(0.7)
+  source          String                       // "conversation:<msgId>" | "integration:<source>" | "manual"
+  attrs           Json                         @default("{}")
+  createdAt       DateTime                     @default(now()) @map("created_at")
+  lastRecalledAt  DateTime?                    @map("last_recalled_at")
+  decayedAt       DateTime?                    @map("decayed_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
+  @@index([userId, importance(sort: Desc)])
+  @@map("memories")
+}
+
+// Knowledge graph — entities are nodes (people, places, topics, etc.).
+// Contacts become Entity(kind=person) at write time so the graph stays
+// the single source of truth. Existing Contact rows are preserved for
+// back-compat.
+model Entity {
+  id          String                       @id @default(cuid())
+  userId      String                       @map("user_id")
+  kind        EntityKind
+  canonical   String                       // "Maya Chen"
+  aliases     String[]                     @default([])
+  attrs       Json                         @default("{}")
+  embedding   Unsupported("vector(1536)")?
+  contactId   String?                      @unique @map("contact_id") // back-link if mirrors a Contact
+  createdAt   DateTime                     @default(now()) @map("created_at")
+  updatedAt   DateTime                     @updatedAt @map("updated_at")
+
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  outgoingRelations Relation[] @relation("RelationFrom")
+  incomingRelations Relation[] @relation("RelationTo")
+
+  @@index([userId, kind])
+  @@map("entities")
+}
+
+// Knowledge graph edges. `strength` 0-1, decays without reinforcement.
+model Relation {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  fromId      String   @map("from_id")
+  toId        String   @map("to_id")
+  kind        String   // "friend_of" | "sibling_of" | "works_at" | "dating" | etc.
+  strength    Float    @default(0.5)
+  lastEventAt DateTime? @map("last_event_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  from Entity @relation("RelationFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to   Entity @relation("RelationTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([userId, fromId])
+  @@index([userId, toId])
+  @@map("relations")
 }
 
 enum RelationshipType {
@@ -129,4 +256,213 @@ enum ToneMode {
   neutral
   millennial
   gen_z
+}
+
+enum MemoryKind {
+  fact
+  preference
+  event
+  relationship
+  goal
+  value
+  pattern
+}
+
+enum EntityKind {
+  person
+  place
+  project
+  topic
+  habit
+  media
+  org
+}
+
+enum GoalKind {
+  short
+  long
+}
+
+enum GoalStatus {
+  active
+  done
+  paused
+  abandoned
+}
+
+// ── Sprint 7: goals + reminders ─────────────────────────────────────
+
+model Goal {
+  id        String     @id @default(cuid())
+  userId    String     @map("user_id")
+  kind      GoalKind
+  parentId  String?    @map("parent_id")
+  title     String
+  why       String?
+  deadline  DateTime?
+  status    GoalStatus @default(active)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent     Goal?       @relation("GoalParent", fields: [parentId], references: [id], onDelete: SetNull)
+  children   Goal[]      @relation("GoalParent")
+  milestones Milestone[]
+
+  @@index([userId, status])
+  @@index([userId, kind, status])
+  @@map("goals")
+}
+
+model Milestone {
+  id        String    @id @default(cuid())
+  goalId    String    @map("goal_id")
+  title     String
+  doneAt    DateTime? @map("done_at")
+  evidence  Json?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  goal Goal @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@index([goalId, doneAt])
+  @@map("milestones")
+}
+
+// Future reminders scheduled by Aura (or directly by the user). The cron
+// scheduler picks up due rows and asks the conversation worker to deliver
+// a friend-voiced text built from `kind` + `payload`.
+model NudgeSchedule {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  when      DateTime
+  kind      String   // "reminder" | "goal_check" | "contact_nudge" | "routine_nudge" | "callback"
+  payload   Json     @default("{}")
+  sentAt    DateTime? @map("sent_at")
+  cancelled Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([when, sentAt, cancelled])
+  @@index([userId, when])
+  @@map("nudge_schedules")
+}
+
+// ── Sprint 3: integrations + signal events ────────────────────────────
+
+// A user's connection to one external service (Google Calendar, Spotify,
+// Gmail, Apple Shortcuts bridge, etc). One row per (user, app).
+model IntegrationConnection {
+  id                   String    @id @default(cuid())
+  userId               String    @map("user_id")
+  app                  String    // see ALLOWED_APPS in integrations service
+  status               String    @default("active") // "active" | "revoked" | "error" | "pending_oauth"
+  scopes               String[]  @default([])
+  composioConnectionId String?   @map("composio_connection_id")
+  // Webhook token for the iOS Shortcuts bridge — per-user secret on the URL.
+  webhookToken         String?   @unique @map("webhook_token")
+  connectedAt          DateTime  @default(now()) @map("connected_at")
+  lastSyncAt           DateTime? @map("last_sync_at")
+  settings             Json      @default("{}")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, app])
+  @@map("integration_connections")
+}
+
+// ── Sprint 5: group chat support ──────────────────────────────────────
+
+// A group chat that Aura is a member of. `externalId` is Photon's space id.
+// `ownerId` = the user who added Aura (and whose Aura logic runs).
+model GroupSpace {
+  id           String   @id @default(cuid())
+  externalId   String   @unique @map("external_id")
+  name         String?
+  ownerId      String   @map("owner_id")
+  vibe         String?  // friends | family | work | hobby | event (inferred or declared)
+  responsePolicy String @default("address_only") @map("response_policy") // address_only | implicit_call | quiet | host
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  owner        User              @relation("GroupOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  participants GroupParticipant[]
+  memories     GroupMemory[]
+  messages     Message[]
+
+  @@index([ownerId])
+  @@map("group_spaces")
+}
+
+model GroupParticipant {
+  id              String   @id @default(cuid())
+  groupSpaceId    String   @map("group_space_id")
+  userId          String?  @map("user_id") // null if not an Aura user
+  externalHandle  String   @map("external_handle") // phone / iMessage identifier
+  displayName     String   @map("display_name")
+  role            String   @default("member") // owner | member | guest
+  silenced        Boolean  @default(false) // user opted-out of being remembered
+  addedAt         DateTime @default(now()) @map("added_at")
+
+  groupSpace GroupSpace @relation(fields: [groupSpaceId], references: [id], onDelete: Cascade)
+  user       User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  authoredMessages Message[]
+
+  @@unique([groupSpaceId, externalHandle])
+  @@index([userId])
+  @@map("group_participants")
+}
+
+// Group-scope memories. Isolated from personal Memory pool — never
+// cross-contaminate. Encrypted with the owner's encKey.
+model GroupMemory {
+  id            String   @id @default(cuid())
+  groupSpaceId  String   @map("group_space_id")
+  kind          String   // ritual | inside_joke | plan | norm | role | recap
+  content       String   @db.Text
+  importance    Float    @default(0.5)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  groupSpace GroupSpace @relation(fields: [groupSpaceId], references: [id], onDelete: Cascade)
+
+  @@index([groupSpaceId, importance(sort: Desc)])
+  @@map("group_memories")
+}
+
+// Cross-Aura delegation — a user authorizing their Aura to act on their
+// behalf in a specific group, scoped to a specific action type, with TTL.
+model AuraDelegation {
+  id            String   @id @default(cuid())
+  granterUserId String   @map("granter_user_id")
+  groupSpaceId  String   @map("group_space_id")
+  scope         String   // "scheduling" | "rsvp" | "plan_drafting"
+  expiresAt     DateTime @map("expires_at")
+  revokedAt     DateTime? @map("revoked_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([granterUserId, groupSpaceId])
+  @@index([expiresAt])
+  @@map("aura_delegations")
+}
+
+// Normalized signal stream — every integration writes here. Downstream
+// consumers (memory extraction, background agents, escalation rules) read
+// from this table without caring about the source.
+model SignalEvent {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  source      String   // matches IntegrationConnection.app
+  kind        String   // "calendar.event_starting" | "spotify.track_played" | "health.workout" | etc.
+  occurredAt  DateTime @map("occurred_at")
+  summary     String   @db.Text
+  payload     Json     @default("{}")
+  ingested    Boolean  @default(false)
+  ingestErr   String?  @map("ingest_err")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt(sort: Desc)])
+  @@index([userId, source])
+  @@index([userId, ingested])
+  @@map("signal_events")
 }

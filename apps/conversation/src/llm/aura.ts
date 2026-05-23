@@ -1,11 +1,12 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.js";
 import type { DailySuggestion } from "@aura/shared";
-import type { ApiUser, ApiContact, ApiRoutine } from "../lib/apiClient.js";
+import type { ApiUser, ApiContact, ApiRoutine, ApiMemory } from "../lib/apiClient.js";
 import type { Message } from "../lib/conversation.js";
 import type { AuraResponse, ParsedAction } from "../lib/types.js";
 import { extractAction } from "../lib/extractAction.js";
 import { buildSystemPrompt, TONE_INSTRUCTIONS } from "./prompts.js";
+import { splitIntoBursts } from "../lib/burst.js";
 import { env } from "../env.js";
 
 export type { AuraResponse, ParsedAction };
@@ -13,9 +14,50 @@ export { extractAction, buildSystemPrompt };
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
-const MODEL = "gpt-4o";
+// GPT-5.4 family (May 2026). Mini for chat (instruction-tuned, drops AI-voice
+// well, ~$0.0017/turn at our prompt size). Full 5.4 for hard turns. Nano for
+// safety-tier classification (used by other modules).
+const MODEL_CHAT = "gpt-5.4-mini";
+const MODEL_HARD = "gpt-5.4";
+
+// Inbound message contains affect keywords → escalate to gpt-5.4 for the turn.
+const ESCALATION_KEYWORDS = [
+  "anxious",
+  "spiraling",
+  "depressed",
+  "alone",
+  "lonely",
+  "hate myself",
+  "burnt out",
+  "burnout",
+  "panic",
+  "overwhelmed",
+  "can't sleep",
+  "cant sleep",
+  "crying",
+  "hopeless",
+  "exhausted",
+];
+
+function pickModel(userMessage: string): string {
+  const lower = userMessage.toLowerCase();
+  if (ESCALATION_KEYWORDS.some((k) => lower.includes(k))) {
+    return MODEL_HARD;
+  }
+  return MODEL_CHAT;
+}
 
 // ── Main response generation ────────────────────────────────────
+
+/**
+ * Returns the parsed reply: an array of bursts to send as separate iMessages,
+ * plus any extracted action.
+ */
+export interface AuraBurstResponse {
+  bursts: string[];
+  action?: ParsedAction;
+  raw: string;
+}
 
 export async function generateResponse(
   userMessage: string,
@@ -23,100 +65,114 @@ export async function generateResponse(
   contacts: ApiContact[],
   routines: ApiRoutine[],
   history: Message[],
-): Promise<AuraResponse> {
-  const systemPrompt = buildSystemPrompt(user, contacts, routines);
+  memories: ApiMemory[] = [],
+): Promise<AuraBurstResponse> {
+  const systemPrompt = buildSystemPrompt(user, contacts, routines, history, memories);
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
   ];
 
-  // Add conversation history
   for (const msg of history) {
     messages.push({ role: msg.role, content: msg.content });
   }
 
-  // Add the current message
   messages.push({ role: "user", content: userMessage });
 
+  const model = pickModel(userMessage);
+
   const completion = await openai.chat.completions.create({
-    model: MODEL,
+    model,
     messages,
-    max_tokens: 300,
+    max_tokens: 400,
     temperature: 0.85,
   });
 
-  const raw = completion.choices[0]?.message?.content ?? "hmm, my brain glitched. try again?";
-  return extractAction(raw);
+  const raw = completion.choices[0]?.message?.content ?? "hmm my brain glitched\n\ntext me again";
+
+  // Extract optional JSON action from the last line first.
+  const { text, action } = extractAction(raw);
+
+  // Split the conversational text into bursts.
+  const bursts = splitIntoBursts(text);
+
+  // Safety net: if splitting produced nothing usable, fall back to a single
+  // burst with the raw text so we still send something.
+  const finalBursts = bursts.length ? bursts : [text || "..."];
+
+  return { bursts: finalBursts, action, raw };
 }
 
-// ── Daily check-in formatter ────────────────────────────────────
+// ── Daily check-in formatter (returns burst list, same contract) ─────────
 
 export async function formatDailyCheckin(
   suggestion: DailySuggestion,
   user: ApiUser,
-): Promise<string> {
+): Promise<string[]> {
   const contactNudges = suggestion.contactsToNudge
     .map((c) => {
-      if (c.reason === "birthday_soon") return `🎂 ${c.name}'s birthday is coming up!`;
-      return `${c.name} (${c.daysSinceLast}d since last check-in)`;
+      if (c.reason === "birthday_soon") return `${c.name}'s bday coming up`;
+      return `${c.name} (${c.daysSinceLast}d since last)`;
     })
-    .join("\n");
+    .join("; ");
 
   const routineNudges = suggestion.routinesToNudge
     .map((r) => {
-      if (r.reason === "due_today") return `${r.name}`;
+      if (r.reason === "due_today") return r.name;
       if (r.reason === "behind_weekly_target") return `${r.name} (behind this week)`;
       return `${r.name} (overdue)`;
     })
-    .join("\n");
+    .join("; ");
 
   const hasContacts = suggestion.contactsToNudge.length > 0;
   const hasRoutines = suggestion.routinesToNudge.length > 0;
+  const toneGuide = TONE_INSTRUCTIONS[user.toneMode] ?? TONE_INSTRUCTIONS.neutral;
+  const displayName = user.name ?? "the user";
 
+  // No nudges → uplifting opener
   if (!hasContacts && !hasRoutines) {
-    // Nothing to nudge — send an encouraging message
-    const toneGuide = TONE_INSTRUCTIONS[user.toneMode] ?? TONE_INSTRUCTIONS.neutral;
     const completion = await openai.chat.completions.create({
-      model: MODEL,
+      model: MODEL_CHAT,
       messages: [
         {
           role: "system",
-          content: `You are Aura, a personal AI best friend. Send a short, uplifting good morning text. ${toneGuide} Keep it under 160 chars. No hashtags.`,
+          content: `You are Aura, ${displayName}'s best friend over text. Send a short, warm morning text in 2-3 bursts, separated by blank lines, one thought each (3-8 words). No bullet points. No "Good morning!". Vary the opener. ${toneGuide}`,
         },
         {
           role: "user",
-          content: "Send me a good morning message. I'm all caught up on my contacts and routines!",
+          content: "morning",
         },
       ],
-      max_tokens: 100,
+      max_tokens: 120,
       temperature: 0.9,
     });
-    return completion.choices[0]?.message?.content ?? "Good morning! You're on top of everything today ✨";
+    const raw = completion.choices[0]?.message?.content ?? "morning\n\nu got this today";
+    return splitIntoBursts(raw);
   }
 
-  // Build a prompt for the LLM to turn structured data into a natural message
-  const toneGuide = TONE_INSTRUCTIONS[user.toneMode] ?? TONE_INSTRUCTIONS.neutral;
-  const prompt = `Turn this daily check-in data into a short, natural morning text message.
-
-${hasContacts ? `People to reach out to:\n${contactNudges}` : ""}
-${hasRoutines ? `Routines/habits for today:\n${routineNudges}` : ""}
-
-Rules:
-- Keep it under 300 chars
-- ${toneGuide}
-- Make it feel personal, not like a to-do list
-- Don't use bullet points — weave it into natural text
-- Start with a greeting variation (not always "Good morning!")`;
+  const nudgeBlock = [
+    hasContacts ? `people to reach out to: ${contactNudges}` : "",
+    hasRoutines ? `habits for today: ${routineNudges}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const completion = await openai.chat.completions.create({
-    model: MODEL,
+    model: MODEL_CHAT,
     messages: [
-      { role: "system", content: `You are Aura, a personal AI best friend. ${toneGuide}` },
-      { role: "user", content: prompt },
+      {
+        role: "system",
+        content: `You are Aura, ${displayName}'s best friend over text. Send a short morning text in 2-4 bursts separated by blank lines. Each burst 3-12 words, one thought. No bullets, no to-do-list framing. Weave in the data naturally and call out the most important thing first. ${toneGuide}`,
+      },
+      {
+        role: "user",
+        content: nudgeBlock,
+      },
     ],
-    max_tokens: 200,
+    max_tokens: 220,
     temperature: 0.85,
   });
 
-  return completion.choices[0]?.message?.content ?? `Good morning! Here's your daily check-in:\n${contactNudges}\n${routineNudges}`;
+  const raw = completion.choices[0]?.message?.content ?? `morning\n\n${contactNudges}\n\n${routineNudges}`;
+  return splitIntoBursts(raw);
 }
