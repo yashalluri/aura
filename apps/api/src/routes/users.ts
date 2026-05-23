@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TONE_MODES } from "@aura/shared";
 import { prisma } from "../lib/db.js";
 import { notFound } from "../lib/errors.js";
+import { generateUserKey } from "../lib/crypto.js";
 
 const CreateUserSchema = z.object({
   phoneNumber: z.string().min(5),
@@ -22,6 +23,8 @@ const UpdateUserSchema = z.object({
 export async function userRoutes(app: FastifyInstance): Promise<void> {
   app.post("/users", async (req, reply) => {
     const body = CreateUserSchema.parse(req.body);
+    // New users get a fresh per-user encryption envelope at creation time.
+    // Upsert update is a no-op for existing users — their key stays the same.
     const user = await prisma.user.upsert({
       where: { phoneNumber: body.phoneNumber },
       create: {
@@ -29,6 +32,7 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         timezone: body.timezone,
         checkInHour: body.checkInHour,
         toneMode: body.toneMode as "neutral" | "millennial" | "gen_z",
+        encKey: generateUserKey(),
       },
       update: {},
     });

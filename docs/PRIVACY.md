@@ -22,6 +22,9 @@ per-user AES-256-GCM key. That key is itself encrypted under `KMS_ROOT_KEY`
 
 **Currently encrypted at rest:**
 - `Memory.content` — every fact Aura has extracted about you
+- `Message.content` — every conversation turn (Phase 3). Decrypted in-memory
+  on each context load; existing pre-Phase-3 rows were re-encrypted via
+  `scripts/backfill-message-encryption.ts`.
 - (Future) `signal_events.payload` (Phase 4) — raw integration data while
   in transit through processing
 
@@ -29,10 +32,16 @@ per-user AES-256-GCM key. That key is itself encrypted under `KMS_ROOT_KEY`
 - User profile fields (phone number, timezone, name, etc.)
 - Contact + routine + entity *metadata* (names, frequencies) — the *content*
   of memories about them IS encrypted
-- Conversation messages right now — to encrypt them you'd need to decrypt
-  on every read, which would break LLM context retrieval performance.
-  **Mitigated by data minimization** (see #2) — old conversation messages
-  age out into encrypted Memory rows.
+
+**Known plaintext channels (Phase 3 limitation):**
+- **API + conversation worker logs.** When an inbound iMessage arrives the
+  conversation worker logs `{from, text}` for debugging. Server logs are a
+  plaintext channel for the duration of the log retention window. Production
+  should either redact `text` field or ship logs to a separate encrypted
+  store. Not blocking development; flagging for production.
+- **Request/response bodies** flowing between conversation worker and API.
+  Both services hold the encryption material, so intra-cluster traffic is
+  trusted. Don't proxy these requests through a third party.
 
 **Not defended against:**
 - API host compromise — the process holds the root key. If the server itself

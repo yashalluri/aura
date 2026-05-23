@@ -11,6 +11,7 @@ import OpenAI from "openai";
 import { inngest } from "../client.js";
 import { prisma } from "../../lib/db.js";
 import { writeMemory } from "../../services/memory.js";
+import { decrypt, isCiphertext } from "../../lib/crypto.js";
 import { env } from "../../env.js";
 
 const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
@@ -79,8 +80,17 @@ export const memoryExtract: InngestFunction.Any = inngest.createFunction(
       return { extracted: 0 };
     }
 
+    // Decrypt content for the LLM. Messages written pre-Phase-3 are plaintext
+    // (isCiphertext returns false) and pass through unchanged.
+    const user = await step.run("load-user-key", () =>
+      prisma.user.findUnique({ where: { id: userId }, select: { encKey: true } }),
+    );
+    const encKey = user?.encKey ?? null;
     const transcript = window
-      .map((m: { role: string; content: string }) => `${m.role}: ${m.content}`)
+      .map((m: { role: string; content: string }) => {
+        const plain = encKey && isCiphertext(m.content) ? decrypt(m.content, encKey) : m.content;
+        return `${m.role}: ${plain}`;
+      })
       .join("\n");
 
     const extracted = await step.run("call-llm", async () => {
